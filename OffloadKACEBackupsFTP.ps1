@@ -10,19 +10,21 @@ $EmailPass = ConvertTo-SecureString "P@Ssw0rD" -AsPlainText -Force #Password for
 $EmailTo = "serveradmin@domain.com" #Email which will recieve error emails
 $PSEmailServer = "smtp.domain.com" #SMTP server for sending error emails
 
+#------------------------------------------------------------------------------------
 
 $cred = new-object -typename System.Management.Automation.PSCredential `
          -argumentlist $EmailUser, $EmailPass
 
+
 function Write-Logline ($String){"[ "+(Get-Date).ToString()+" ]	"+$String | Out-File $LogfilePath -encoding ASCII -append}
-function Write-Logline-Blank (){"" | Out-Filee $LogfilePath -encoding ASCII -append}
-function Get-FTPModDate ($Source,$UserName,$Password) 
+function Write-Logline-Blank (){"" | Out-File $LogfilePath -encoding ASCII -append}
+function Get-FTPModDate ($Source,$UserName,$FTPpassword) 
 { 
 	# Create a FTPWebRequest object to handle the connection to the ftp server 
     $ftprequest = [System.Net.FtpWebRequest]::create($Source) 
     # set the request's network credentials for an authenticated connection 
     $ftprequest.Credentials = 
-        New-Object System.Net.NetworkCredential($username,$password) 
+        New-Object System.Net.NetworkCredential($username,$FTPpassword) 
     $ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::GetDateTimestamp 
     $ftprequest.UseBinary = $true 
     $ftprequest.KeepAlive = $false 
@@ -40,7 +42,7 @@ function Get-FTPModDate ($Source,$UserName,$Password)
 			Else {
 				$Status = "Backup File present, but it is from previous day. BACKUP PROCESS LIKELY STUCK. Pausing for 15 minutes..."
 			}
-
+			#echo $Status
 			$ftpresponse.Close()
 		}
 		catch [System.Net.WebException]
@@ -50,18 +52,19 @@ function Get-FTPModDate ($Source,$UserName,$Password)
 		}
     Return $Status 
 }
-function Get-FTPDirList ($Source,$UserName,$Password) 
+function Get-FTPDirList ($Source,$UserName,$FTPpassword) 
 { 
 	# Create a FTPWebRequest object to handle the connection to the ftp server 
     $ftprequest = [System.Net.FtpWebRequest]::create($Source) 
     # set the request's network credentials for an authenticated connection 
     $ftprequest.Credentials = 
-        New-Object System.Net.NetworkCredential($username,$password) 
+        New-Object System.Net.NetworkCredential($username,$FTPpassword) 
     $ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectory 
     $ftprequest.UseBinary = $true 
     $ftprequest.KeepAlive = $false
 	# send the ftp request to the server 
 	$ftpresponse = $ftprequest.GetResponse()
+	#echo $ftpresponse
 	$stream = $ftpresponse.GetResponseStream()
 	$buffer = new-object System.Byte[] 1024 
 	$encoding = new-object System.Text.AsciiEncoding 
@@ -99,7 +102,7 @@ function Get-FTPDirList ($Source,$UserName,$Password)
 	Return $outputBuffer
 	
 }
-function Get-FTPFilesize ($DestFolder,$ServerPath,$Filename,$UserName,$Password) 
+function Get-FTPFilesize ($DestFolder,$ServerPath,$Filename,$UserName,$FTPpassword) 
 { 
 	$destfilepath = $DestFolder+$Filename
 	$Source = "ftp://"+$ServerPath+"/"+$Filename
@@ -109,7 +112,7 @@ function Get-FTPFilesize ($DestFolder,$ServerPath,$Filename,$UserName,$Password)
 		 
 		# set the request's network credentials for an authenticated connection 
 		$ftprequest.Credentials = 
-			New-Object System.Net.NetworkCredential($username,$password) 
+			New-Object System.Net.NetworkCredential($username,$FTPpassword) 
 		 
 		$ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::GetFileSize 
 		$ftprequest.UseBinary = $true 
@@ -145,7 +148,7 @@ function Get-FTPFilesize ($DestFolder,$ServerPath,$Filename,$UserName,$Password)
 	}
 }
 
-function Get-FTPFile ($DestFolder,$ServerPath,$Filename,$UserName,$Password) 
+function Get-FTPFile ($DestFolder,$ServerPath,$Filename,$UserName,$FTPpassword) 
     { 
     $target = $DestFolder+$Filename
 	$Source = "ftp://"+$ServerPath+"/"+$Filename
@@ -154,7 +157,7 @@ function Get-FTPFile ($DestFolder,$ServerPath,$Filename,$UserName,$Password)
      
     # set the request's network credentials for an authenticated connection 
     $ftprequest.Credentials = 
-        New-Object System.Net.NetworkCredential($username,$password) 
+        New-Object System.Net.NetworkCredential($username,$FTPpassword) 
      
     $ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::DownloadFile 
     $ftprequest.UseBinary = $true 
@@ -186,8 +189,12 @@ function Send-Error-Email ($ErrorText) {
 	$LogContentsHTML = $LogContents -Replace "`n", "</br>"
 	$Body = "Hello KACE Team,</br><h3>The backup process for server <font color=""blue"">$ServerPath</font> encountered an error.</h3></br><h4>Error text:</h4>$ErrorText</br></br><h4>Full Logs:</h4>$LogContentsHTML</br></br>"
 	#$Body += $LogContents
+	echo $ErrCt
 	$Subjectvar = "Backup Log, Error Count: $ErrCt"
 	$Subject = [string] $Subjectvar
+	#echo $LogContents
+	#echo ""
+	#echo $Body
 	Send-MailMessage -To $EmailTo -from $EmailFrom -Subject $Subject -BodyAsHtml $Body -Port 587 -Priority: High
 }
 	
@@ -204,9 +211,9 @@ function Goto-Error-Exit ($ErrorString) {
 #-------------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------------
 
-If ($BackupLocation.substring(0,2) -eq "\\") [
+#If ($BackupLocation.substring(0,2) -eq "\\") [
 	#Backup Location is a UNC Path
-	}
+#	}
 
 $ErrCt = 0
 $CurDir = Split-Path $MyInvocation.MyCommand.Path
@@ -229,7 +236,7 @@ Write-Logline "Backing up $ServerPath to $BackupLocation"
 
 $Count=0
 Do {
-	$BackupComplete = Get-FTPModDate "ftp://$serverpath/BACKUP_RUNNING" $FTPUser $pass
+	$BackupComplete = Get-FTPModDate "ftp://$serverpath/BACKUP_RUNNING" $FTPUser $FTPpass
 	If ($BackupComplete -eq "Y") {
 		Write-Logline "-->Onboard backup appears complete. Proceeding with offload."
 		$BackupStillRunning = $false
@@ -244,7 +251,7 @@ Do {
 } while($BackupStillRunning -and $Count -lt 8)
 $Count=0
 Do {
-$FileList = Get-FTPDirList "ftp://$ServerPath" $FTPUser $pass
+$FileList = Get-FTPDirList "ftp://$ServerPath" $FTPUser $FTPpass
 $Count+=1
 } while($FileList -eq "" -and $Count -lt 2)
 If($FileList -eq "") {
@@ -258,6 +265,7 @@ echo "Incremental File: $IncrFile"
 Write-Logline-Blank
 Write-Logline "Incremental File to Download:	[$IncrFile]"
 $BaseDate = $IncrFile.substring(0,8)
+#echo "Base Date: $BaseDate"
 $BasePattern = $BaseDate+"_k1_base_.*tgz"
 $FileList -match $BasePattern
 $BaseFile = $matches[0]
@@ -266,12 +274,12 @@ Write-Logline "Base File to Download:		[$BaseFile]"
 $Count=0
 #Check for (properly sized) existing Incremental File
 If ($IncrFile -ne "") {
-	$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPUser $pass
+	$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPUser $FTPpass
 	If (-not ($TestIncr)) {
 		Do {
 			Write-Logline "Copying $IncrFile to $BackupLocation"
-			Get-FTPFile $BackupLocation $ServerPath $IncrFile $FTPUser $pass
-			$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPUser $pass
+			Get-FTPFile $BackupLocation $ServerPath $IncrFile $FTPUser $FTPpass
+			$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPUser $FTPpass
 			$Count+=1
 		} Until(($TestIncr) -or $Count -gt 2)
 		If (-not ($TestIncr)) {
@@ -291,12 +299,12 @@ Else {
 $Count=0
 #Check for (properly sized) existing BASE File
 If ($BaseFile -ne "") {
-	$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPUser $pass
+	$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPUser $FTPpass
 	If (-not ($TestBase)) {
 		Do {
 			Write-Logline "Copying $BaseFile to $BackupLocation"
-			Get-FTPFile $BackupLocation $ServerPath $BaseFile $FTPUser $pass
-			$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPUser $pass
+			Get-FTPFile $BackupLocation $ServerPath $BaseFile $FTPUser $FTPpass
+			$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPUser $FTPpass
 			$Count+=1
 		} Until(($TestBase) -or $Count -gt 2)
 		If (-not ($TestBase)) {
@@ -325,6 +333,8 @@ Foreach-Object{
 	If($Filename -like "*_k1_incr_*") {
 		$FileDate = $Filename.substring($Filename.Length-8,2)+"/"+$Filename.substring($Filename.Length-6,2)+"/"+$Filename.substring($Filename.Length-12,4)
 		$FormattedFileDate = [datetime] $FileDate
+		echo "Filename: $Filename"
+		echo "FileDate: $FileDate"
 		$DateDiff = New-TimeSpan $MinDate $FormattedFileDate
 		If ($DateDiff.Days -gt -1) {
 			echo " File is still new enough. Keeping Incremental file dated "$Filename.substring(0,8)
@@ -341,7 +351,7 @@ Foreach-Object{
 	}
 
 }
-
+echo "Base Files to keep: $BaseFilesKeep"
 Get-ChildItem $BackupLocation -Filter *.tgz | `
 Foreach-Object{
 	$Filename = $_.Name
@@ -357,7 +367,7 @@ Foreach-Object{
 		}
     }
 	Else {
-		#Not a base backup
+		echo "$Filename is not a base backup."
 	}
 
 }
@@ -374,4 +384,3 @@ if ( -not ( Test-Path $BackupLocation"Logs" -PathType Container )) {
 	New-Item -Path $BackupLocation"Logs" -ItemType directory
 }
 Copy-Item $LogfilePath $BackupLocation"Logs"
-
