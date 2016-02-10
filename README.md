@@ -19,8 +19,8 @@ Instructions
 
 Parameters
 =================
-The following parameters must be customized at the top of the script before running:
-
+These parameters must be personalized in the script before running:
+-------------
 $BackupLocation = **"\\server.address.or.ip\FolderShare\"** *#Destination for backups to be downloaded to (Can also be a local path)*
 
 $ServerPath = **"kace.domain.com"** *#Your KACE Server Address*
