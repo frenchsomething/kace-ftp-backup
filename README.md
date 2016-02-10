@@ -1,5 +1,6 @@
 ##KACE-FTP-BACKUP
-Powershell Script for Offloading [Dell/KACE K1000](http://software.dell.com/products/kace-k1000-systems-management-appliance/ "KACE K1000 Product Page") Backups via FTP
+Powershell Script for Offloading [Dell/KACE K1000](http://software.dell.com/products/kace-k1000-systems-management-appliance/ "KACE K1000 Product Page") Backups via FTP.
+
 This has been designed for KACE OS 6.4 only. 6.3 and prior utilized a different method of backup that will not be recognized by this script.
 
 ##What does it do?
