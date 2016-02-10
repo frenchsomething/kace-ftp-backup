@@ -1,4 +1,4 @@
-$BackupLocation = "\server.address.or.ip\FolderShare\" #Destination for backups to be downloaded to (Can also be a local path)
+$BackupLocation = "\\server.address.or.ip\FolderShare\" #Destination for backups to be downloaded to (Can also be a local path)
 $ServerPath = "kace.domain.com" #Your KACE Server Address
 $FTPUser = "kbftp" #User for KACE FTP server (Can only be kbftp)
 $FTPPass = "getbxf" #Password for KACE FTP server (getbxf is default, but can be changed at Settings>Security Settings>New FTP user password
