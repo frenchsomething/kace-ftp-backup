@@ -18,13 +18,69 @@ $cred = new-object -typename System.Management.Automation.PSCredential `
 
 function Write-Logline ($String){"[ "+(Get-Date).ToString()+" ]	"+$String | Out-File $LogfilePath -encoding ASCII -append}
 function Write-Logline-Blank (){"" | Out-File $LogfilePath -encoding ASCII -append}
-function Get-FTPModDate ($Source,$UserName,$FTPpassword) 
+
+function get-DiskFreeSpaceEx{ 
+    [cmdletbinding()] 
+    param( 
+        [parameter(mandatory=$true,position=0,ValueFromPipeLine=$true)] 
+        [validatescript({(Test-Path $_ -IsValid)})] 
+        [string]$path, 
+        [parameter(mandatory=$false,position=1)] 
+        [string]$unit="byte" 
+    ) 
+     
+    begin{ 
+        switch($unit){ 
+            "byte" {$unitval = 1;break} 
+            "kb" {$unitval = 1kb;break} 
+            "mb" {$unitval = 1mb;break} 
+            "gb" {$unitval = 1gb;break} 
+            "tb" {$unitval = 1tb;break} 
+            "pb" {$unitval = 1pb;break} 
+            default {$unitval = 1;break} 
+        } 
+         
+        $typeDefinition = @' 
+[DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)] 
+[return: MarshalAs(UnmanagedType.Bool)] 
+public static extern bool GetDiskFreeSpaceEx(string lpDirectoryName, 
+    out ulong lpFreeBytesAvailable, 
+    out ulong lpTotalNumberOfBytes, 
+    out ulong lpTotalNumberOfFreeBytes); 
+'@ 
+     
+    } 
+    process{ 
+        $freeBytesAvail = New-Object System.UInt64 
+        $totalNoBytes = New-Object System.UInt64 
+        $totalNoFreeBytes = New-Object System.UInt64 
+         
+        $type = Add-Type -MemberDefinition $typeDefinition -Name Win32Utils -Namespace GetDiskFreeSpaceEx -PassThru 
+         
+        $result = $type::GetDiskFreeSpaceEx($path,([ref]$freeBytesAvail),([ref]$totalNoBytes),([ref]$totalNoFreeBytes)) 
+         
+        $freeBytes = {if($result){$freeBytesAvail/$unitval}else{"N/A"}}.invoke()[0] 
+        $totalBytes = {if($result){$totalNoBytes/$unitval}else{"N/A"}}.invoke()[0] 
+        $totalFreeBytes = {if($result){$totalNoFreeBytes/$unitval}else{"N/A"}}.invoke()[0] 
+         
+        #New-Object PSObject -Property @{ 
+        #    Success = $result 
+        #    Path = $path 
+        #    "Free`($unit`)" = $freeBytes 
+        #    "total`($unit`)" = $totalBytes 
+        #    "totalFree`($unit`)" = $totalFreeBytes 
+        #}
+		Return $freeBytes
+    }  
+}  
+
+function Get-FTPModDate ($Source,$UserName,$password) 
 { 
 	# Create a FTPWebRequest object to handle the connection to the ftp server 
     $ftprequest = [System.Net.FtpWebRequest]::create($Source) 
     # set the request's network credentials for an authenticated connection 
     $ftprequest.Credentials = 
-        New-Object System.Net.NetworkCredential($username,$FTPpassword) 
+        New-Object System.Net.NetworkCredential($username,$password) 
     $ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::GetDateTimestamp 
     $ftprequest.UseBinary = $true 
     $ftprequest.KeepAlive = $false 
@@ -42,7 +98,6 @@ function Get-FTPModDate ($Source,$UserName,$FTPpassword)
 			Else {
 				$Status = "Backup File present, but it is from previous day. BACKUP PROCESS LIKELY STUCK. Pausing for 15 minutes..."
 			}
-			#echo $Status
 			$ftpresponse.Close()
 		}
 		catch [System.Net.WebException]
@@ -52,19 +107,18 @@ function Get-FTPModDate ($Source,$UserName,$FTPpassword)
 		}
     Return $Status 
 }
-function Get-FTPDirList ($Source,$UserName,$FTPpassword) 
+function Get-FTPDirList ($Source,$UserName,$password) 
 { 
 	# Create a FTPWebRequest object to handle the connection to the ftp server 
     $ftprequest = [System.Net.FtpWebRequest]::create($Source) 
     # set the request's network credentials for an authenticated connection 
     $ftprequest.Credentials = 
-        New-Object System.Net.NetworkCredential($username,$FTPpassword) 
+        New-Object System.Net.NetworkCredential($username,$password) 
     $ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectory 
     $ftprequest.UseBinary = $true 
     $ftprequest.KeepAlive = $false
 	# send the ftp request to the server 
 	$ftpresponse = $ftprequest.GetResponse()
-	#echo $ftpresponse
 	$stream = $ftpresponse.GetResponseStream()
 	$buffer = new-object System.Byte[] 1024 
 	$encoding = new-object System.Text.AsciiEncoding 
@@ -102,49 +156,73 @@ function Get-FTPDirList ($Source,$UserName,$FTPpassword)
 	Return $outputBuffer
 	
 }
-function Get-FTPFilesize ($DestFolder,$ServerPath,$Filename,$UserName,$FTPpassword) 
+function Get-FTPFilesize ($DestFolder,$ServerPath,$Filename,$UserName,$Password)
 { 
+	$DestFreeSpace = get-DiskFreeSpaceEx $DestFolder -unit bytes
+	#Write-Logline "Destination free space: $DestFreeSpace"
 	$destfilepath = $DestFolder+$Filename
 	$Source = "ftp://"+$ServerPath+"/"+$Filename
-	If((Test-Path $destfilepath) -eq $true) {
-		# Create a FTPWebRequest object to handle the connection to the ftp server 
-		$ftprequest = [System.Net.FtpWebRequest]::create($Source) 
-		 
-		# set the request's network credentials for an authenticated connection 
-		$ftprequest.Credentials = 
-			New-Object System.Net.NetworkCredential($username,$FTPpassword) 
-		 
-		$ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::GetFileSize 
-		$ftprequest.UseBinary = $true 
-		$ftprequest.KeepAlive = $false 
-		 
-		# send the ftp request to the server 
-		$ftpresponse = $ftprequest.GetResponse() 
+	
+	#Write-Logline "Testing $Source and $destfilepath"
+	
+	# Create a FTPWebRequest object to handle the connection to the ftp server 
+	$ftprequest = [System.Net.FtpWebRequest]::create($Source) 
+	 
+	# set the request's network credentials for an authenticated connection 
+	$ftprequest.Credentials = 
+		New-Object System.Net.NetworkCredential($username,$password) 
+	 
+	$ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::GetFileSize 
+	$ftprequest.UseBinary = $true 
+	$ftprequest.KeepAlive = $false 
+	 
+	# send the ftp request to the server 
+	$ftpresponse = $ftprequest.GetResponse() 
 
-		$SourceSize = $ftpresponse.ContentLength
-		$ftpresponse.Close()
+	$SourceSize = $ftpresponse.ContentLength
+	$ftpresponse.Close()
+	
+	#Write-Logline "Source size: $SourceSize"
+	
+	$TestPath = Test-Path $destfilepath
+	#Write-Logline $TestPath
+			
+	If((Test-Path $destfilepath) -eq $true) {
 
 		$destfile = Get-Item $destfilepath
-		If ($SourceSize -eq $destfile.length) {
+		$destfilesize = $destfile.length
+		If ($SourceSize -eq $destfilesize) {
 			#Destination file is present and sizes match, which is a pretty good indication that the transfer was successful.
 			Return $true
 		}
 		Else {
-			#Destination file is present, but sizes don't match. This must be a failed or corrupt transfer, so we'll have to delete and retry.
-			$SourceSizeGB = [string] ([math]::round($SourceSize/1024/1024/1024,2))
-			$SourceSize = [string] $SourceSize
-			Write-Logline "$Filename is present on backup location, but sizes don't match. Deleting failed transfer."
-			Write-Logline "Size of [$Filename] to download: $SourceSizeGB GB ($SourceSize bytes)"
-			Remove-Item $destfile
-			Return $false
+			If(($DestFreeSpace+$destfilesize) -lt $SourceSize) {
+				Goto-Error-Exit "NOT ENOUGH FREE SPACE FOR BACKUP. BACKUP OF FILE $FileName WAS ABORTED."
+			}
+			Else {
+				#Destination file is present, but sizes don't match. This must be a failed or corrupt transfer, so we'll have to delete and retry.
+				$SourceSizeGB = [string] ([math]::round($SourceSize/1024/1024/1024,2))
+				$SourceSize = [string] $SourceSize
+				Write-Logline "$Filename is present on backup location, but sizes don't match. Deleting failed transfer."
+				Write-Logline "Size of [$Filename] to download: $SourceSizeGB GB ($SourceSize bytes)"
+				Write-Logline "Sufficient free space on destination ($DestFreeSpace bytes)"
+				Remove-Item $destfile
+				Return $false
+			}
 		}
 	}
 	Else {
-		#Destination File not yet present
-		$SourceSizeGB = [string] ([math]::round($SourceSize/1024/1024/1024,2))
-		$SourceSize = [string] $SourceSize
-		Write-Logline "Size of [$Filename] to download: $SourceSizeGB GB ($SourceSize bytes)"
-		Return $false
+		If($DestFreeSpace -lt $SourceSize) {
+			Goto-Error-Exit "NOT ENOUGH FREE SPACE FOR BACKUP. BACKUP OF FILE $FileName WAS ABORTED."
+		}
+		Else {
+			#Destination File not yet present
+			$SourceSizeGB = [string] ([math]::round($SourceSize/1024/1024/1024,2))
+			$SourceSize = [string] $SourceSize
+			Write-Logline "Size of [$Filename] to download: $SourceSizeGB GB ($SourceSize bytes)"
+			Write-Logline "Sufficient free space on destination ($DestFreeSpace bytes)"
+			Return $false
+		}
 	}
 }
 
@@ -192,9 +270,6 @@ function Send-Error-Email ($ErrorText) {
 	echo $ErrCt
 	$Subjectvar = "Backup Log, Error Count: $ErrCt"
 	$Subject = [string] $Subjectvar
-	#echo $LogContents
-	#echo ""
-	#echo $Body
 	Send-MailMessage -To $EmailTo -from $EmailFrom -Subject $Subject -BodyAsHtml $Body -Port 587 -Priority: High
 }
 	
@@ -202,6 +277,11 @@ function Goto-Error-Exit ($ErrorString) {
 	Write-Logline "Encountered Fatal Error. Sending Error Email and exiting."
 	Write-Logline $ErrorString
 	Send-Error-Email $ErrorString
+	#Copy log file to network/backup share
+	if ( -not ( Test-Path $BackupLocation"Logs" -PathType Container )) { 
+		New-Item -Path $BackupLocation"Logs" -ItemType directory
+	}
+	Copy-Item $LogfilePath $BackupLocation"Logs"
 	exit 1
 }
 
@@ -210,10 +290,6 @@ function Goto-Error-Exit ($ErrorString) {
 #-----------------------------------MAIN STARTS HERE----------------------------------
 #-------------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------------
-
-#If ($BackupLocation.substring(0,2) -eq "\\") [
-	#Backup Location is a UNC Path
-#	}
 
 $ErrCt = 0
 $CurDir = Split-Path $MyInvocation.MyCommand.Path
@@ -265,7 +341,6 @@ echo "Incremental File: $IncrFile"
 Write-Logline-Blank
 Write-Logline "Incremental File to Download:	[$IncrFile]"
 $BaseDate = $IncrFile.substring(0,8)
-#echo "Base Date: $BaseDate"
 $BasePattern = $BaseDate+"_k1_base_.*tgz"
 $FileList -match $BasePattern
 $BaseFile = $matches[0]
@@ -274,14 +349,14 @@ Write-Logline "Base File to Download:		[$BaseFile]"
 $Count=0
 #Check for (properly sized) existing Incremental File
 If ($IncrFile -ne "") {
-	$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPUser $FTPpass
+	$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPuser $FTPpass
 	If (-not ($TestIncr)) {
 		Do {
 			Write-Logline "Copying $IncrFile to $BackupLocation"
-			Get-FTPFile $BackupLocation $ServerPath $IncrFile $FTPUser $FTPpass
-			$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPUser $FTPpass
+			Get-FTPFile $BackupLocation $ServerPath $IncrFile $FTPuser $FTPpass
+			$TestIncr = Get-FTPFilesize $BackupLocation $ServerPath $IncrFile $FTPuser $FTPpass
 			$Count+=1
-		} Until(($TestIncr) -or $Count -gt 2)
+		} Until($TestIncr -or $Count -gt 2)
 		If (-not ($TestIncr)) {
 			$ErrCt+=1
 			Write-Logline "Copying of Incremental file [$IncrFile] FAILED."
@@ -299,15 +374,15 @@ Else {
 $Count=0
 #Check for (properly sized) existing BASE File
 If ($BaseFile -ne "") {
-	$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPUser $FTPpass
-	If (-not ($TestBase)) {
+	$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPuser $FTPpass
+	If (-not $TestBase) {
 		Do {
 			Write-Logline "Copying $BaseFile to $BackupLocation"
-			Get-FTPFile $BackupLocation $ServerPath $BaseFile $FTPUser $FTPpass
-			$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPUser $FTPpass
+			Get-FTPFile $BackupLocation $ServerPath $BaseFile $FTPuser $FTPpass
+			$TestBase = Get-FTPFilesize $BackupLocation $ServerPath $BaseFile $FTPuser $FTPpass
 			$Count+=1
-		} Until(($TestBase) -or $Count -gt 2)
-		If (-not ($TestBase)) {
+		} Until($TestBase -or $Count -gt 2)
+		If (-not $TestBase) {
 			$ErrCt+=1
 			Write-Logline "Copying of Base file [$BaseFile] FAILED."
 			$ErrorText+= "Copying of Base file [$BaseFile] FAILED."
