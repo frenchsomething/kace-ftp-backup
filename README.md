@@ -6,6 +6,7 @@ This has been designed for KACE OS 6.4 only. 6.3 and prior utilized a different 
 ##What does it do?
 KACE K1000 Backups are accessible via a FTP share on the KACE server. This script downloads those backups to a user-defined location for redundancy and to reduce space requirements on the K1000 server.
 * User can define number of daily backups that are retained on backup location.
+* Destination is checked for sufficient free space prior to each file download
 * Daily Incremental backups are downloaded and any dependent base backups are also downloaded.
 * Existing downloaded backups are checked and not re-downloaded if they are present with matching filesize
 * Existing downloads with mismatched filesizes are deleted and re-downloaded
