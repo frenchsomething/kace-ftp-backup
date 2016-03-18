@@ -72,7 +72,30 @@ public static extern bool GetDiskFreeSpaceEx(string lpDirectoryName,
         #}
 		Return $freeBytes
     }  
-}  
+}
+
+function Test-FTPConnection ($Source,$FTPUserName,$FTPpassword)
+{
+	# Create a FTPWebRequest object to handle the connection to the ftp server 
+    $ftprequest = [System.Net.FtpWebRequest]::create($Source) 
+    # set the request's network credentials for an authenticated connection 
+    $ftprequest.Credentials = 
+        New-Object System.Net.NetworkCredential($FTPUserName,$FTPpassword) 
+    $ftprequest.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectory 
+    $ftprequest.UseBinary = $true 
+    $ftprequest.KeepAlive = $false
+    
+	try {
+		# send the ftp request to the server 
+		$ftpresponse = $ftprequest.GetResponse()
+		$Status = "Success"
+		$ftpresponse.close
+	}
+	catch {
+		$Status = "Fail"
+		}
+	Return $Status
+}
 
 function Get-FTPModDate ($Source,$UserName,$password) 
 { 
@@ -310,6 +333,13 @@ If ($LogFileExists -eq $True) {
 
 Write-Logline "Backing up $ServerPath to $BackupLocation"
 
+#Checking FTP Server Connectivity. Fail if FTP cannot be reached.
+$FTPUp = Test-FTPConnection "ftp://$serverpath" $FTPUser $FTPpass
+If ($FTPUp -eq "Fail") {
+	$ErrCt+=1
+	Goto-Error-Exit "Unable to connect to FTP server."
+}
+
 $Count=0
 Do {
 	$BackupComplete = Get-FTPModDate "ftp://$serverpath/BACKUP_RUNNING" $FTPUser $FTPpass
@@ -334,15 +364,31 @@ If($FileList -eq "") {
 	$ErrCt+=1
 	Goto-Error-Exit "Unable to retrieve file list from FTP server."
 }
+
 $IncrPattern = ".+_k1_incr.*"+$CurDate+".tgz"
 $FileList -match $IncrPattern
+#Check for a present/correctly named Incremental File; Exit script and send error email if not present.
+If(!$matches){
+	$ErrCt+=1
+	Goto-Error-Exit "Incremental File for today is NOT PRESENT."
+}
+
+#Incremental file is present. Logging name and continuing with backup.
 $IncrFile = $matches[0]
 echo "Incremental File: $IncrFile"
 Write-Logline-Blank
 Write-Logline "Incremental File to Download:	[$IncrFile]"
+
 $BaseDate = $IncrFile.substring(0,8)
 $BasePattern = $BaseDate+"_k1_base_.*tgz"
 $FileList -match $BasePattern
+#Check for a present/correctly named Base File; Exit script and send error email if not present.
+If(!$matches){
+	$ErrCt+=1
+	Goto-Error-Exit "Base File for today is NOT PRESENT."
+}
+
+#Base file is present. Logging name and continuing with backup.
 $BaseFile = $matches[0]
 echo "Base File: $BaseFile"
 Write-Logline "Base File to Download:		[$BaseFile]"
