@@ -364,7 +364,8 @@ If($FileList -eq "") {
 	$ErrCt+=1
 	Goto-Error-Exit "Unable to retrieve file list from FTP server."
 }
-
+#Clear the matches array so that the base file isn't kept in the variable if the incremental backup for today isn't found (i.e. no matches).
+$matches=""
 $IncrPattern = ".+_k1_incr.*"+$CurDate+".tgz"
 $FileList -match $IncrPattern
 #Check for a present/correctly named Incremental File; Exit script and send error email if not present.
