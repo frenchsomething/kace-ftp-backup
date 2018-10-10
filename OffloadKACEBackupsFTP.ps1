@@ -4,16 +4,16 @@ $FTPUser = "kbftp" #User for KACE FTP server (Can only be kbftp)
 $FTPPass = "getbxf" #Password for KACE FTP server (getbxf is default, but can be changed at Settings>Security Settings>New FTP user password
 $DaystoRetain = 30 #Days of backups to retain on the desitnation location. Backups older than 30 days will be automatically deleted.
 
-$EmailUser = "domain\username" #Username for email account to send error emails from (Recommend using service account)
+$EmailUser = "domain\username" #Username for email account to send emails from (Recommend using service account)
 $EmailFrom = "serviceaccount@domain.com" #Email address for the selected account
-$EmailPass = ConvertTo-SecureString "P@Ssw0rD" -AsPlainText -Force #Password for email account for sending error emails
-$EmailTo = "serveradmin@domain.com" #Email which will recieve error emails
-$PSEmailServer = "smtp.domain.com" #SMTP server for sending error emails
+$EmailPass = ConvertTo-SecureString "P@Ssw0rD" -AsPlainText -Force #Password for email account for sending emails
+$EmailTo = "serveradmin@domain.com" #Email which will recieve emails
+$PSEmailServer = "smtp.domain.com" #SMTP server for sending emails
 
 #------------------------------------------------------------------------------------
 
 $cred = new-object -typename System.Management.Automation.PSCredential `
-         -argumentlist $EmailUser, $EmailPass
+         -argumentlist $EmailUser , $EmailPass
 
 
 function Write-Logline ($String){"[ "+(Get-Date).ToString()+" ]	"+$String | Out-File $LogfilePath -encoding ASCII -append}
@@ -293,9 +293,19 @@ function Send-Error-Email ($ErrorText) {
 	echo $ErrCt
 	$Subjectvar = "Backup Log, Error Count: $ErrCt"
 	$Subject = [string] $Subjectvar
-	Send-MailMessage -To $EmailTo -from $EmailFrom -Subject $Subject -BodyAsHtml $Body -Port 587 -Priority: High
+	Send-MailMessage -To $EmailTo -from $EmailFrom -Subject $Subject -BodyAsHtml $Body -Port 25 -Priority: High
 }
-	
+function Send-Log-Email ($LogText) {
+	Write-Logline "Sending Final Log email."
+	$LogContents = [IO.File]::ReadAllText($LogfilePath)
+	$LogContentsHTML = $LogContents -Replace "`n", "</br>"
+	$Body = "Hello KACE Team,</br><h3>The backup process for server <font color=""blue"">$ServerPath</font> has been completed.</h3>Please review the full attached log</br></br><h4>Full Logs:</h4>$LogContentsHTML</br></br>"
+	#$Body += $LogContents
+	#echo $ErrCt
+	$Subjectvar = "KACE SMA Backup Log"
+	$Subject = [string] $Subjectvar
+	Send-MailMessage -To $EmailTo -from $EmailFrom -Subject $Subject -BodyAsHtml $Body -Port 25 -Priority: High -Attachment $LogFilePath
+}
 function Goto-Error-Exit ($ErrorString) {
 	Write-Logline "Encountered Fatal Error. Sending Error Email and exiting."
 	Write-Logline $ErrorString
@@ -500,7 +510,9 @@ If($DeletedIncrFile -ne $true -and $DeletedBaseFile -ne $true){
 If($ErrCt -gt 0){
 	Send-Error-Email $ErrorText
 }
-
+If($ErrCt -eq 0){
+	Send-Log-Email $LogText
+}
 #Copy log file to network/backup share
 if ( -not ( Test-Path $BackupLocation"Logs" -PathType Container )) { 
 	New-Item -Path $BackupLocation"Logs" -ItemType directory
